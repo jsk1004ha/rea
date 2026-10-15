@@ -95,7 +95,11 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
       vitePreloadDependencyTable: indexVitePreloadDependencyTable(file.program),
       openReceiverFacts: receivers.openReceivers,
       electronBindings: electronIdentity.bindings,
-      rpcScan: createJavaScriptRpcScan(source, receivers.rpcClientRoots),
+      rpcScan: createJavaScriptRpcScan(
+        source,
+        receivers.rpcClientRoots,
+        bindings,
+      ),
     },
     bindings,
   );

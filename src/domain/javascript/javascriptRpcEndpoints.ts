@@ -5,6 +5,12 @@ import {
   semanticStaticPropertyKey,
 } from "./javascriptAstValues.js";
 import { calleeName } from "./javascriptStaticAnalysisHelpers.js";
+import {
+  resolveSemanticBindingState,
+  semanticStableInitializer,
+  type JavaScriptSemanticAnalysisState,
+} from "./javascriptSemanticState.js";
+import { traverseJavaScriptAst } from "./javascriptSemanticTraversal.js";
 
 /** One RPC operation or transport URL recovered from client-side syntax. */
 export interface JavaScriptRpcEndpoint {
@@ -149,8 +155,8 @@ const objectStringProperty = (
 /**
  * Find source-body string values owned by a GraphQL Source-shaped literal.
  * A later duplicate or spread can make the effective `body` unknown, but the
- * earlier strings still belong to this object and must not become standalone
- * operation findings during the string scan.
+ * earlier strings still belong to this object. Suppress them only when its
+ * source identity is linked to a recovered precompiled operation.
  */
 const graphqlSourceBodyLiterals = (
   node: t.ObjectExpression,
@@ -281,6 +287,72 @@ export const graphqlOperationFromDocumentNode = (
     : { value, mechanism: `graphql:${type}` };
 };
 
+/**
+ * Identify Source objects attached to a recovered precompiled operation.
+ * Index before emitting strings: a Source initializer can precede its consumer,
+ * and `loc` can precede `definitions`. Names alone never establish ownership.
+ */
+const graphqlDocumentSources = (
+  state: JavaScriptSemanticAnalysisState,
+): WeakSet<t.ObjectExpression> => {
+  const sources = new WeakSet<t.ObjectExpression>();
+  const objects = new WeakMap<t.Node, t.ObjectExpression | null>();
+  const resolveObject = (
+    value: t.Node | undefined,
+  ): t.ObjectExpression | undefined => {
+    let current = value;
+    let resolved: t.ObjectExpression | undefined;
+    const visited = new Set<t.Node>();
+    while (current !== undefined) {
+      current = unwrapJavaScriptExpression(current).node;
+      if (visited.has(current)) break;
+      visited.add(current);
+      if (objects.has(current)) {
+        resolved = objects.get(current) ?? undefined;
+        break;
+      }
+      if (t.isObjectExpression(current)) {
+        resolved = current;
+        break;
+      }
+      if (!t.isIdentifier(current)) break;
+      const binding = resolveSemanticBindingState(state, current, current.name);
+      const initializer = semanticStableInitializer(binding, state);
+      // A destructuring projection is not the whole initializer object.
+      if (initializer === undefined || initializer.projection.length !== 0)
+        break;
+      current = initializer.node;
+    }
+    for (const node of visited) objects.set(node, resolved ?? null);
+    return resolved;
+  };
+
+  traverseJavaScriptAst(state.program, {
+    enter: (node) => {
+      if (!t.isObjectExpression(node)) return;
+      let hasOperation = graphqlOperationFromDocumentNode(node) !== undefined;
+      if (!hasOperation && objectStringProperty(node, "kind") === "Document") {
+        const definitions = objectProperty(node, "definitions");
+        hasOperation =
+          t.isArrayExpression(definitions) &&
+          definitions.elements.some((element) => {
+            const definition = resolveObject(element ?? undefined);
+            return (
+              definition !== undefined &&
+              graphqlOperationFromDocumentNode(definition) !== undefined
+            );
+          });
+      }
+      if (!hasOperation) return;
+      const loc = resolveObject(objectProperty(node, "loc"));
+      if (loc === undefined) return;
+      const source = resolveObject(objectProperty(loc, "source"));
+      if (source !== undefined) sources.add(source);
+    },
+  });
+  return sources;
+};
+
 /** Bundlers use `(0, imported.factory)` to call an import without a receiver. */
 const rpcFactoryName = (callee: t.Node): string => {
   let current = unwrapJavaScriptExpression(callee).node;
@@ -328,13 +400,14 @@ const trpcLinkUrl = (
 export const createJavaScriptRpcScan = (
   source: string,
   clientRoots: ReadonlySet<t.Node>,
+  state: JavaScriptSemanticAnalysisState,
 ): JavaScriptRpcScan => {
   let marker: boolean | undefined;
   const hasMarker = (): boolean =>
     (marker ??= TRPC_SOURCE_MARKERS.some((value) => source.includes(value)));
-  // graphql-tag documents retain source text in loc.source.body. Keep each
-  // direct body literal owned by a Source-shaped object out of the independent
-  // string scan, including duplicates that a later property or spread hides.
+  // A Source-shaped object alone is not a duplicate. Lazily index actual
+  // document ownership once, reusing the caller's lexical binding index.
+  let documentSources: WeakSet<t.ObjectExpression> | undefined;
   const graphqlDocumentSourceBodies = new WeakSet<t.Node>();
 
   const procedure = (
@@ -371,10 +444,11 @@ export const createJavaScriptRpcScan = (
         return trpcLinkUrl(node) ?? procedure(node);
       if (t.isObjectExpression(node)) {
         const bodies = graphqlSourceBodyLiterals(node);
-        if (bodies !== undefined) {
+        if (
+          bodies !== undefined &&
+          (documentSources ??= graphqlDocumentSources(state)).has(node)
+        )
           for (const body of bodies) graphqlDocumentSourceBodies.add(body);
-          return undefined;
-        }
         return graphqlOperationFromDocumentNode(node);
       }
       if (t.isStringLiteral(node))
