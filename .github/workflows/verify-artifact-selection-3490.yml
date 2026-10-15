@@ -2,56 +2,68 @@ name: Verify selected artifact extraction
 on:
   push:
     branches: [work/artifact-selection-3490]
-permissions:
-  contents: write
 concurrency:
   group: verify-artifact-selection-3490
   cancel-in-progress: false
 env:
   HUSKY: "0"
+  TURBO_TELEMETRY_DISABLED: "1"
 jobs:
   verify:
+    permissions:
+      contents: write
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    outputs:
+      source_sha: ${{ steps.publish.outputs.source_sha }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: 60c3c213d736757e057598fab49a7b1d999a0792
+          ref: 5901a36324b6660c1a5964581418074cdb22c20f
           fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version-file: .nvmrc
-      - name: Apply source-boundary and regression refinements
-        env:
-          PATCH: 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
+      - name: Fix optional-value ownership and the typed refusal assertion
         run: |
           python3 - <<'PYTHON'
-          import os, base64, zlib, subprocess
           from pathlib import Path
-          script=Path('/tmp/refine-3490.py')
-          script.write_bytes(zlib.decompress(base64.b64decode(os.environ['PATCH'])))
-          subprocess.run(['python3',str(script)],check=True)
-          p=Path('docs/mcp-contracts.md')
-          text=p.read_text()
-          old='output and reports any cleanup failure.'
-          assert text.count(old)==1
-          p.write_text(text.replace(old,old+'\nAn output root inside the source directory, including a symlink alias, is refused.'))
-          with open('/tmp/rea-3490-refined.txt','a') as f: f.write('docs/mcp-contracts.md\n')
+          contract = Path('src/contracts/artifactToolContracts.ts')
+          text = contract.read_text()
+          start = text.index('/** Omitted selection')
+          end = text.index('/** Provider input', start)
+          section = text[start:end]
+          assert section.count('.optional()') == 2
+          contract.write_text(text[:start] + section.replace('.optional()', '.exactOptional()') + text[end:])
+          test = Path('tests/boundary/providers/native/artifactProvider.extractionSelection.test.ts')
+          text = test.read_text()
+          old = ').toThrow("not a regular file or slice exposed by the active reader");'
+          new = ''' ).toThrowError(expect.objectContaining({
+            _tag: "AnalysisInputError",
+            issues: [expect.objectContaining({
+              path: ["occurrence_ids"],
+              reason: "invalid_value",
+              message: expect.stringContaining("not a regular file or slice exposed by the active reader"),
+            })],
+          }));'''
+          assert text.count(old) == 1
+          test.write_text(text.replace(old, new))
           PYTHON
       - name: Install pinned dependencies and format the changed files
         run: |
           npm install --global npm@11.16.0
           npm ci
-          xargs -d '\n' npm exec -- oxfmt < /tmp/rea-3490-refined.txt
+          npm exec -- oxfmt src/contracts/artifactToolContracts.ts tests/boundary/providers/native/artifactProvider.extractionSelection.test.ts
       - name: Publish exact source for validation
+        id: publish
         run: |
           git config user.name jsk1004ha
           git config user.email 129354802+jsk1004ha@users.noreply.github.com
-          git add --pathspec-from-file=/tmp/rea-3490-refined.txt
+          git add src/contracts/artifactToolContracts.ts tests/boundary/providers/native/artifactProvider.extractionSelection.test.ts
           git diff --cached --check
-          git commit -m "fix(artifacts): protect source directories and verify public selection"
+          git commit -m "fix(artifacts): keep optional selection inputs JSON-safe"
           git push origin HEAD:refs/heads/feat/artifact-selection-3490
-          git rev-parse HEAD
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Extraction, ownership and public CLI/MCP tests
         run: |
           npm run test:focused -- \
@@ -74,3 +86,30 @@ jobs:
       - name: Documentation and catalog checks
         if: ${{ !cancelled() }}
         run: npm run docs:check
+  macos:
+    needs: verify
+    permissions:
+      contents: read
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.verify.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Install pinned dependencies
+        run: |
+          npm install --global npm@11.16.0
+          npm ci
+      - name: Verify macOS output safety and CLI/MCP parity
+        run: |
+          npm run test:focused -- \
+            tests/boundary/providers/native/artifactProvider.extractionSelection.test.ts \
+            tests/boundary/providers/native/artifactProvider.extractionDestination.test.ts \
+            tests/boundary/providers/native/artifactProvider.extraction.test.ts \
+            tests/boundary/providers/native/artifactProvider.archiveSafety.test.ts \
+            tests/boundary/filesystem/safeOutputTree.test.ts \
+            tests/acceptance/artifactExtractionSelection.test.ts
