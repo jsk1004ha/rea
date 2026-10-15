@@ -1,0 +1,62 @@
+name: Verify selected artifact extraction
+on:
+  push:
+    branches: [work/artifact-selection-3490]
+permissions:
+  contents: write
+concurrency:
+  group: verify-artifact-selection-3490
+  cancel-in-progress: false
+env:
+  HUSKY: "0"
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+      - name: Prepare the proposed change on its exact base
+        env:
+          PREPARE_SCRIPT: "eNrtPf1T3EaWv89f0dbmFikZNM5uKpUdgr0EO7tUxYYCUnt1hAIx6mEUNJKi1vBhwv9+773+ljTDgO3b1N25EoOk7tevX79+393+04vRQtSji6wY8eKaVXfNrCz+OgiCYKeq8jvWzDiblpOF4Cn701+/+dtLNpklxSVnTUnfan6d8Rv4ePh2h4lyUU/kO5GVRTwYHC4KNq3LuWpblSJryvqO1WXZxOx4lgkmJnVWNSwtuWBF2bBJOZ9nDStrVi3ELEZUBgSiSppZnl2wbF6VdcMO4HGgfp8lAj8NBrv/3Hn/j7dv2DY7OR0MUj5lPM2aELsOcfw8mfA5LxoRjQcM/lTQEgFRi4heNfy2gbdVXPMkPcOnUH6YAkplng5ZwW9YVnjgJDT8MykXBfbHjjE9hNApMt+zqWryYpt9bbvhnzrJBGdAsiab87d1XdbhdOMeMXsYM35b8UkDhC4L7g7NkmIyK+shuwTa3RNoaH0PY56M//by9EX9sGEHV3Mj3BSMUE9pyL6WDav4ps4aLqeOf8nXirRxUlW8SBXBiMRJmioKU+ullIWpVzG/zUQjwshOvXfah3y6EFlxiXymMCW6T7Ocw/SIKBsa3yqpgRLx/CrN6lA+iO3jesGHjIY7K6/o8RnzI/bZEPVkBO/zbJI0wNijpG6yaTJpxGhH/fb2tqnhB3x8w0WTFdQubsTGkJ2Eg42NjdGXX7LdWVnCVBPYElzMgFrIvQlsh9T2ITZLCqaHgBloyDH7cjQAPkCOn5SFgL+BRxu+EgdYBiA2E02N1Nx+BXP9tcyKsJlXSK1oyM4ByKYahaebX9zXSZGW859/3nsTRg/n0RZgP9RTOADMeX3NEUVABSgCe9VBf4uVsNXrG1zSybLpyt3/zMnABMpFUy2aQ4DyWs9sOHAn6bRgr18/Z8LRqbf4gCE1F2bpj8sy39Vv1UIPwg0lkO7ZB/YgJV/woUyDLfhsv2Vi50KU+aLhplFRpnyMPBds/VIsA/JL4XzTiOxPJosaWH7CjyYzPk9MlzgewaySzLLrP+qkmsW/CkAnGgKyckktpWGH8RSlMBM8B2lT1mMGyzuHZamzJM8+gIjm1xxXkF8u8qSGJc7ylDZldz2TzkruFbAoCstt9iHG9YIJXPwKY4X3sLBZ0fBL2Jx3Z1UJrHU3NkD29JcD+iCBDAcPkjuZmso+aA6UkRJ9nFGl+FWgXqlyDiS3G4qVU1JM+HSNUjVJef3vmYhm6jPcG2OWl5MkR/F5RCwtW5GYArk9zQoeWh4assBZQgmGthibLwD7C5ifahlISReXFTZNcqXYYti/oIQveKhkcmDY0xVMyJ2gfYhiqO1npYBdvKeGQdVNwhYkQwpcI5gUxPIrfYlpfVCiL/qlYFYT093F7GgxmXAhpotcT6jitUDNwZIpcCMhASTK42BISEdEQrMVzrJUjNkHOb2krpO7cNl+icUsqXjs9VV0mYPYUEpRkz0EwBFKGFRGR7yh51jA1mDb29sMnuKcF5eoDAM7Ett7I8xqLIrst8X6a/H2FrWA2nCbuNXQNhLAPNyZMI1gLC35tgE2vIYfRFFNesX9DGhndjG0qTPc28D1aOhd3PVtizdqeaDlkOVZcQU/yKxDVsNFn/P5BawSjCqyFNW1wL2Y1CAkaAMmBTIJUEBuT546iyc3siOVDuryGqDUAA2XHwUwiDKyCGY+X4KaEbzQSNPOAZMkqZr19vLbWz5Z4C96PwNKK3c8mDANWgj3hPvj2xbn2JJTrclZllZ4o0HLxAItDqAgftBs4s78f3p2q/upbWQ7xIviBhROGFkCqPXV8spjQuRsh4UV8ynuQZZ3DDCQLZOrBLwQkLPlKkniMAeILPQ4kJ/FIse9MckXQE2SVbhwkqSHHIW4YIAgaDqBvASsLe7myPEMNifMUqDBDF9ZCX+RMQlvsBk8ZlPcSZOcJ8WiAvGoxT2bZwIUKdAKJplkOaIExnMCqGwBSpOyTjcBxCYyelYsjJoScvkvSIvh1oTBaKyaN4u6gE2bTGYGOEuEa5mBAwdmdb2gjWh0EpPWTJpJqzLQ9p1Zlo9ZEpA0ilVhcLnRAR2EaoRRS07TbNDihTmiP6N1j8NKbbXjWpmrBNpj7OExhFwESW8toUisIn5KC2k+2YLdaTSUJJNSUG39xN57YtAIyZr/tgA0YGNzLdWy2hVzuoPgoEjBAsvvPgNz6hVxeGPGJ1cgfJoM6DlBGDIGsIBHklbjJ3PyFeeVYMbg9tlP9DIrMWXbBs8zY8nulvM5jLHa8IYdvqhbpnfna69N3W/pOYb1Y/6AtbGlPqctMWa9gs94eggUXVcmkiksdzBEzJf3RytAs+kasJTslYoC2gOv8tpOVFFUeVhA6zHbzbM9aJzAPkURnpeXlxw8gp/oJ76pF4XWZDuw4e+A/8fKTNDPJ0FPo+CU3LXrMkvRlLqXA8YTiUK4+9Pe2e7+u3c7798cxYpttFs4ZFIxfSqyELCkvkRrMS6tAU+BAlDkY2XdF5dhZG0zCo5pwYeRKqWOyIGLJNAH9VNqbg++NgX+fy3+/Wuh4NuAwZPtnKEGYbTaXromEE8Pdkx/MP73enQm6CTXkA9rXvGkSS5yHoFefNzMDzTC0dCaZG4c0jP61ojKhASIOPqjwKjVie1aREMvQBrHsW3kUJtcr0WRkouWel0Ye83uH1qvxiDq275iL9wHSSJfD5ElVo/0tt1xFICjj5AWO4fHez/u7B6fHe/v/wTb6P3xITwdDR0bHDZ1xdvs4ZDz2SAes/M7ay/tSbRHahVrA6IGio/ONKxg4NAVFwSNkzkHOoCV8XTGYXZpxiBHJmXK/5U1MwD0hucZhppCg9CQ2bGsO2Wi6uFjmEfs3onSFxSVUM4RSNrV+xVGFjx0x7fha0m3+4HHpwa0y8FPpo+B4sobZ1M8aDQ0GRUyT6Vki8O74W2tNXz+bs9Mik+iVdonIeUfXlxndVlg8mIMtmUmYufNCkmyHnSUEbqN72Z8lJDYQxnRD/cheuL8iNqYNGkR2wYme9IKRzqkKZcAwCirtbmrOKC60wlvufbqqljwwJi/2iYgzqdMzBIYqh012S1rLuEMMLRx3A4cbTihV+MCDsEHQzYHDeWkB39bSF9JLq4b3kD/pJ5iEmgFZWgP4qBlAb5Ecg2+CWrFsX3XJdLJ6ZbbSVsrj/Z5oNkO2JfsDW6jeVbo+bLypoB9NcsqdsGnQBzyku905AqdQiIKeI0UodrXniwC47cYlCD3rzAe4KRc5Oi+g2eF5hzgVAHNSqQnWE8qzGaDbzIzi9CAjoCPjt+Z1I3jiNeIsCg17dULFalTmV61GoNOtEkSq7sgllJCJ2zsm0coS6asZgTYdK+d9tL2O5EG6yo+0HasNq/J+tl2sYgl9aWlFdoPkcyQtd7GaDndnV1lhTQ1AvT4A/b772xFG4rQgtL585879mEM5jtYrPkZhdRfYGsZCiW14qGNwUSkog43q9fxPKnC8J55gB4oMO2+ihyAZj8ANA1FUaEfkNRosG9l5H/ba7NlUuLaWsWGIk8EtsQWMfwOtknKb/enYTAKjMqUjV5ts5f+myXdZISYuY6AbkokDl8OJQAzABoDLvniWSJkPjfSCnKa5ILL9lLuq/dNvaDXDwRMArLM6KsQA+ze0nboSBBL8Ic+YCpPQDBfqtKDWV1iacF1kmepYWfwcJxca0v52EyXycJccMbnVXMXBx47aeHq8pLFpjtfmdRA5uzBejW+KxMfHlpSUxBpDVqGbprJvSkr5vTTNQ7Ei7s9Pcd30N3d8wTO3+vsxNmVHsyhM8SpHIC4XY4CeJRTSxjNnvKj46ptEz7xJSWKFIOSreo08XhKsfASyp47lM1kuUxWeBkf410bIT9mX9xn6QNG+8hP8EO5qnVyCXpd6yvFU6CElMcYnzuovzBrRvsKqf9kpBMvxGzzWasSUDiPJSL0gYU0xwiDzxwU5+o4qusfdzWomuzDoGXa2z1Ojz373BGnfSxrdxbSrcXAlCMBswKsKMVhLTKiJp1zIZJLrgsdUAt2LTZSYMj+3W9h1ykaWt4Du17OVMZaTgJf1ASnQyUpE0GBHoXhGfy94CqooDCk2ZwCHdHa7fcsVhq7PWHdXDRJgzVcSS51lFs4MRUjNInAiBKteO/63bxA8DqmjTGNV1rrbrWFY2i6Lo1cTc8OdX0I6xGt29tzW/osqFVjEa5OXUir4qMvi6PyLIU0XwXsNkQCzOBUJ3V0xQ/OxIXt5Vrkdt/UZrRD6vXhG0q7JipPfZNUFEklZtDjf4NF6Emj/ba68y27MXPsO7KIWmPIJWhRqwf2GobjaKRTXzblhd4jlvOhJ1I0RtD7iS9XNWxpUIpTH69TAHnP3YqlNP6/bcZa6SFXeJmx2ln4B6oVYOuIwrBvQw1lutALqAqH1XRBa5ufO+bf4z6OH8q0QQZva6in7BLUoqpIIHVrQwtHHUZ3g1ErwXqTeeZIZgouaA0Fa3pdoa1SsTv9UUtn1V1gHSyfD72r0XpCJ91ptsMtND4MdAFq94ge2O/WIgGygY1zIFX0911sDilx/6pHQT4HGY86Y+TF76W+fPV5cHZYNrlJwLWjZL1G862UdcD/Uq7p6PoQpN4BFVubhPpQ4eRv92dDdXlk6SAGedWPuEs3bXGWxclt3GLFVb27zCYBjdHFU4s07FngV631VSP0WVTPA7gWw3jjOovuWyh7DZ+Tu4jQyGEk4Wb9Lr+hH4i4d1QGWR1xj2XS/qDMEXs4gNw38hwU1x4Sj/wI8nhRO1lJhra/qhcJ3Nj3+WE7x0tjotcHu4HK+clk9nxTcuDOLRij/3T9iNJvLmeDQbDDUp5nF5jR4NouBC/JOJh6QGuvyvmzI6psIdcFumr7wtS4KCvCiVTLQjGEtSiMrVrJ7aE85mpxkWdiBm1is17aaHzqeljz8IXHYDHMlzfcOU/h+91rLFzvsn2CRVNL9gkZ2qx9O0t5rjPiWV9JgTYQbzgsCvKBawgi3idxHCuMrvidCKPTWIAYDzFDAYbjz0WGibNd+P+gzPCYUExnB8BNDiI9X9Lmfprqj4GV2v8e01AQ75UfYHyUU3r4ZL0ZJjRBMM+KS9hDyszXM/QQ+wi6e/wQ7HRKSFVErB3iIuq7lN9qVSjbgpQ1HRU69hC0MpY9Ru+SzOPrPwDyTvY92EdlJdNTm52qHd8bXxdHR2AaFgFxV/SXRJr9YTTmM0sU5aLYNGsD44nRRQlrkNR3GPOhZLYYYZr9mpuolMly8760KwBp515NfImOnlGYKf0xQ88Kf6NXZH7huxWhJ5uBRa7vOxNkW+CGlUkFtxXYHTyZYw7WNDyGSRwqI+9nIN53O3gMovvmX4ggvPmvrJK/Gsh//5BV8a9iJH+4SFCN69tkAvaiLlrSliPoS/j/OjNQrrECtfFQozz6D1kBi3Gc1KAaWmlm+V/70J3bAazoMoeFb+G1zhGydYZa93xfiyor623WKM5fhto61aar0JA+RxsPs7Xcz0txeLR8QNUhrLWsCtiF0/YYurdnAizp66nli2cWrNOnBfNJkd2lo6xZquEPfZM1M916N88wbtkZCQ99QGtb6EztjiZlxXt5/Ri48ZjPqzfmxEMH5DS7bUC5i5EpgDeNVd2G2c5hSOGV6yyG9tCAg4J6V4KwDTEDNtCHTKTY3maJuCsm0sLNvMx+aH470c6UOpv5uyN5TqOT08hP1t9ICSSjQUYihfjUllhhJyl3Ig8hUz7iFPNzCjFp+zjecB07R5aB76ApdVJ2OGEagH7GYa0YDalNBKrSR8f7Gm3ZvJEaa5KXgoeRm9xRS2JJ2CIDnXnYVigvWegwwGOsWr9uWo7cdBOsKs5I1hQVS6EDQoPHINZlS4cyqKgUYeRbtdjhCdHwJACXC3hz/u03m9ffJSNzkEuUaKpJdapnpxNGstPtd9+effvNiM5tPNIcefUv0/h2nmOrvAS7oPXxR/0Rdov+eBp508ZKLUPCjsKxvgilNHVh11WkTGT1gmPWzEK1vqQGbN7sT3XVmeQD28lYQNvOcTw/8VCka8Q5JXMup7+ZjR3Q96ms8a+SgTq+YdjRyego1y9w+fmeSQ5SG4cIaYriaNpD1282eLTzmppilv01LHeJ2ltCHtLRhO/KUgVkCNKAnqm//FVVY/IwMKO7GdD7h8iyghzHYQX1wrCCIsZKLarqRVVXIk0sHzwxoJPQ2/0U0ME5c8Ydj5f2FkSpgNlrLyqpMlfPoxTttp50sarRf8SSUfO/9ytedagRSzQ7BZlUgtlbmS1rLE2ZpQpDtjvb3xGGjlVSegtVlz0uYNON3RsWgBmsKM4a3VgwL6+BLoqYgduaaq8Ly1zkIasED1II1/Epkjl6Z3lOd6IIGKIt8zWLp0mTGAZXezL0YivqFJqS59g+VkJdDxd47VubRk1Udmw8HhuyE3prJIq3Cqdu/cejO0SPrnTqIwbpyr1icytSv8bGBNPZoZrnpEZcsem9i6K4Kd/+tkjycJX6Ou0bzXLG2Twpsim6gLrTmc+nzihrENIbRYO2IAiC1RamQU/nPJtnTSLPLsiYCQtoyrvS1w97/frAByXZQ3uvIcHRfLFK5aAGbqbfyQF/gM3VUunLRsGLOCT89uqYddAcSz3Jy+5BSxoVMHwELENHIwHaOzybqO9iYBhXwlNJ7/ffvj8OVGGf2U9ojQCHtuj9Udq5bej4NKDXrw0bY+2PJJ3PNO53XY+oRJI8TWnEi+YNDMukHK+uQXlki9NUSW/PGdaPkkQkv1fTbUWFgPsqhrWtG4GHFUIiIIXA/SYwK9WAKBqtXxnorXbBV4vCjlSFHsjkWSo8QM1N+URA0AMBYRgUgJ0Ct+L5Xa58GCVYYTRHquKTI1KpBYBxWuBTR+hOs1o06wpdHKNH4mrDFX6m64JCZJYLb8KqT5za7S+H623TA8rogQ4A+6W1cZSEAN18VZQ3hTxEj44W1qiqRA75Wj2XTHzUXlHe3KcSMnHgMI2E/YihT/cgLTPufRcahcgtcjw50Cfn0Ovsi/tgGsTymGH47TcYkJcFV75qi5W7DUxtEpKPmC3nqoZw84t7Gvjh3M3+PdWAserVMIvixY5WKK/GsnhmyGgHoc141iSXoCm6ZZOgNYze6FVMRpU9UQk9+AxqrsDTxzuS/kg5u5nxgipXW/F8zNnJEySg4Zdz7PrRBTn8piky3/TNy57gAh05saGFNYMLJ+CYFapfz0eJRtzcNhQ2oKfg9DQCx+ckkJc56I/yCT+2MF03HrBuROCZMQHdrdDF+J9AIBjajRxCOZPRYz0iJVS1ng4G3CS6wNwk/oIVzohdf3i5lhfiBw7MLlZzWGU2f/Jd/cn2tLOb25dwYFW6NMJl5eqn0i7LfUK6dMuR8xKIvCVRTa9/j/qGNhqckqXgQU6B0Pq8ruYzltpUplPOzFnedbwcb5a+U9Mz53U9GgP1tM0es7Ioa7oUa8LzXKam/PMX8joDtbzSMPlsrKLQaG9xSjyVNHsZkqfw0q5564BXb+IEW4SfhzWG7kAyxPMJuMXO/TNLBEQcLM1kcgWywDhwalFAUMu7ndSpywve3HBU80a/oL3qhao+CyPQ6G1JX2eXGQXduim5GIyVpsQsSoxXGW2Zams9QWyGvqIqk77OYlHd7RfhCkioRwBWAH5eObnaw8PDeDpBnomfLgq5OUI8Wz3uYjSUBUw6KNpXHWd0p89tnmoFH/Srr1qTgB5/idon/1WtJ/o9mJMOdYY+xjxcePLDYjqFydGDJq9c6iAyVoq9fkGROkahQzNsT0eZjn9Y4Wtrhz7zdrJXe6rbp/CyE3lBopWg7SPYSXGnTl5/1AYSzrGsdQrkl/t+PsUNXLNASgnZD6Y+fp2e/0yu+U90YjP8xm8vZ/1xuAMznZK6O0ZbMvwsA6zg1iFbycotxKgK308FODfBKh2vKy06iQAZdcOogHtrs2I7EMyWGd2Lkc1ddihdPZjOKQjZVMlikIF4rVw8uUlDsrfo/sJN36xWFF7vBhEJXxsz5vnJkAACuAMSynrtfVNpjftVMBFnjKf7nkt0A7xvLujYdeuA9lNRhuwPkXe1Sg+RjMSJ8aZFlQhvgQt0xiGQKadug6UfRioE8ssvL5XZatq18mAnpyu+BbA2mwkwivkQrGqu4zpft+M6Sz4oWKeRDaMpvL3rlPX1Wv/xKzI71eI5HL/WcuFlYAe0ZLJ7rC5aVEtDasfbz+4R07SciNF8Um2aiql4npor2M/b6cxzlgDsSt2xKTBRJzkNSxzf7R7IjJ5g55ubhhc3ZYvzAcwXLxLX8980QGOGoWr82LkK8ZxpP8u/1lPfwLkCQ3MB7LnDP+eE4bm/vOeyCFLEA7yLZfenPYZXTcJiUXkolujCfCSQTQvE3iJGnw3EzSw9jwf+oJlQ93VK4dZ3MfS4/wpoGgpvJ7H3U5uLo4d40rTQN5jiDQbOPa542ShedHmB1Kfbh+WVxhSszZqBlc/yss/WHe/fLxZZ+urcAYiRkJq9BxtjQ/RdDToIz4/fHbzZOzzHqR3sH+39Z/SEe6lpojKnzqgAaGtgb3/Bs6vq3tlE3tAyL2F9YrZDF2pyb1M5XoM8m4XMcFMM1Phq7cDpEmTcqMs9CRBW+QwG+xcYI1SXsHrXRLcqeDdE+8Joom6bvQbmZtqn3yHt3mRhLJaBviCiKAu57jgpeVvElgnXU4o9fewOahk9GrRLi5HrpeBC1KRN2PKs1d0BtEqd2wMGa98ewOyJfdgmF+4x6aH6902oZGCA/2bJEO/e4aju9MW+YHxm6C8g39AZE13P7WT3zPk28jIY5ncHwtby0J29eMrQvSS7VYWwpW6epq1LF7a3qqsHS6qrDXugbHG4VOdqzC26xG6A6c0sm8wGbvl4p05cX2cM01SSWP47MgZmhrMG3ICZ/9AynCrO6R892Rg182qEMgj/zZxN5fZhJGgjcv/5kY1fig2Ztlf//EjEvmL4MhpUNeDb0yAa/Ddus0sF"
+        run: |
+          python3 - <<'PYTHON'
+          import os, base64, zlib
+          from pathlib import Path
+          Path('/tmp/prepare-3490.py').write_bytes(zlib.decompress(base64.b64decode(os.environ['PREPARE_SCRIPT'])))
+          PYTHON
+          git checkout --detach 6fcfc5b5e0c063300cd5278dd8bad5b1ab1374f6
+          python3 /tmp/prepare-3490.py
+      - name: Install the pinned toolchain and dependencies
+        run: |
+          npm install --global npm@11.16.0
+          npm ci
+      - name: Format the changed source
+        run: xargs -d '\n' npm exec -- oxfmt < /tmp/rea-3490-changed.txt
+      - name: Publish the implementation for review
+        run: |
+          git config user.name jsk1004ha
+          git config user.email 129354802+jsk1004ha@users.noreply.github.com
+          git add --pathspec-from-file=/tmp/rea-3490-changed.txt
+          git diff --cached --check
+          git commit -m "feat(artifacts): select extraction entries and output destination" -m "Refs morluto/rea#3490"
+          git push --force-with-lease=refs/heads/feat/artifact-selection-3490: origin HEAD:refs/heads/feat/artifact-selection-3490
+      - name: Artifact regression tests
+        run: |
+          npm run test:focused -- \
+            tests/boundary/providers/native/artifactProvider.extractionSelection.test.ts \
+            tests/boundary/providers/native/artifactProvider.extraction.test.ts \
+            tests/boundary/providers/native/artifactProvider.archiveSafety.test.ts \
+            tests/boundary/providers/native/artifactProvider.extractionIdentity.test.ts \
+            tests/boundary/providers/native/artifactProvider.extractionFormat.test.ts \
+            tests/boundary/providers/native/artifactProvider.universalExtraction.test.ts
+      - name: Static checks
+        if: ${{ !cancelled() }}
+        run: npm run check
+      - name: Documentation and catalog checks
+        if: ${{ !cancelled() }}
+        run: npm run docs:check
