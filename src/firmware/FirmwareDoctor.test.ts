@@ -1,13 +1,19 @@
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { expect, it, vi } from "vitest";
 import {
   ProviderProcessSupervisor,
   type ProviderProcessSnapshot,
 } from "../process/ProviderProcess.js";
-import { OwnedCommandFailure } from "../process/OwnedCommand.js";
+import {
+  OwnedCommandFailure,
+  runOwnedCommand,
+} from "../process/OwnedCommand.js";
+import { AnalysisError } from "../domain/analysisErrorBase.js";
 import { AnalysisCancelledError } from "../domain/analysisErrorCore.js";
+import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import type { FirmwareDoctorHost } from "./FirmwareDoctor.js";
 import * as commandPath from "../process/ArtifactCommandPath.js";
 import { createTestTempDirectory } from "../../tests/fixtures/temporaryDirectory.js";
@@ -403,6 +409,443 @@ linuxIt.each(["timeout", "output-limit", "process"] as const)(
 );
 
 linuxIt(
+  "uses the command owner's cancellation reason and captured output",
+  async () => {
+    const { environment, host } = await fixture();
+    const controller = new AbortController();
+    const reason = { request: "owner-observed cancellation" };
+    const run = vi.fn<NonNullable<FirmwareDoctorHost["runCommand"]>>(
+      async () => {
+        throw new OwnedCommandFailure(
+          "cancelled",
+          "Command cancelled during finalization",
+          snapshot("completed output", 0, "captured diagnostic"),
+          null,
+          { cancellation: { reason } },
+        );
+      },
+    );
+    const doctor = new FirmwareDoctor(
+      environment,
+      "linux",
+      { ...host, runCommand: run },
+      controller.signal,
+    );
+    const failure: unknown = await doctor
+      .inspect()
+      .catch((cause: unknown) => cause);
+    expect(failure).toBeInstanceOf(AnalysisCancelledError);
+    if (!(failure instanceof AnalysisCancelledError)) throw failure;
+    expect(controller.signal.aborted).toBe(false);
+    expect(failure.cause).toBe(reason);
+    expect(projectAnalysisError(failure)).toMatchObject({
+      code: "cancelled",
+      details: {
+        captured_output: {
+          stdout: "completed output",
+          stderr: "captured diagnostic",
+          exit_code: 0,
+          truncated: false,
+        },
+      },
+    });
+    expect(run).toHaveBeenCalledOnce();
+    expect(await doctor.close()).toBeUndefined();
+  },
+);
+
+linuxIt.each([
+  { reason: "process", tag: "ProviderAdapterError", code: "execution_failure" },
+  { reason: "timeout", tag: "AnalysisTimeoutError", code: "provider_timeout" },
+  {
+    reason: "output-limit",
+    tag: "AnalysisResourceConstraintError",
+    code: "resource_constraint",
+  },
+] as const)(
+  "keeps an earlier $reason failure and output when cleanup observes cancellation",
+  async ({ reason, tag, code }) => {
+    const { environment, host } = await fixture();
+    const controller = new AbortController();
+    const cancellation = { request: "cancel during probe cleanup" };
+    const physical = new OwnedCommandFailure(
+      reason,
+      `Original ${reason} failure`,
+      {
+        ...snapshot("earlier stdout", 7, "earlier stderr"),
+        diagnosticTruncated: reason === "output-limit",
+      },
+      null,
+      { cancellation: { reason: cancellation } },
+    );
+    const run = vi.fn<NonNullable<FirmwareDoctorHost["runCommand"]>>(
+      async () => {
+        controller.abort(cancellation);
+        throw physical;
+      },
+    );
+    const doctor = new FirmwareDoctor(
+      environment,
+      "linux",
+      { ...host, runCommand: run },
+      controller.signal,
+    );
+    const failure: unknown = await doctor
+      .inspect()
+      .catch((cause: unknown) => cause);
+    expect(failure).toBeInstanceOf(AnalysisError);
+    if (!(failure instanceof AnalysisError)) throw failure;
+    expect(failure._tag).toBe(tag);
+    expect(failure.cause).toBe(physical);
+    expect(failure.secondaryFailures).toHaveLength(1);
+    expect(failure.secondaryFailures[0]).toBeInstanceOf(AnalysisCancelledError);
+    expect(failure.secondaryFailures[0]?.cause).toBe(cancellation);
+    expect(projectAnalysisError(failure)).toMatchObject({
+      code,
+      details: {
+        captured_output: {
+          stdout: "earlier stdout",
+          stderr: "earlier stderr",
+          exit_code: 7,
+          truncated: reason === "output-limit",
+        },
+        diagnostics: {
+          firmware_probe: { reason, message: `Original ${reason} failure` },
+        },
+      },
+    });
+    expect(run).toHaveBeenCalledOnce();
+    expect(await doctor.close()).toBeUndefined();
+  },
+);
+
+linuxIt(
+  "keeps an unrelated AbortError primary when the caller also cancels",
+  async () => {
+    const { environment, host } = await fixture();
+    const controller = new AbortController();
+    const physical = new Error("physical preparation failure");
+    physical.name = "AbortError";
+    const cancellation = { request: "later caller cancellation" };
+    const run = vi.fn<NonNullable<FirmwareDoctorHost["runCommand"]>>(
+      async () => {
+        controller.abort(cancellation);
+        throw physical;
+      },
+    );
+    const doctor = new FirmwareDoctor(
+      environment,
+      "linux",
+      { ...host, runCommand: run },
+      controller.signal,
+    );
+    const failure: unknown = await doctor
+      .inspect()
+      .catch((cause: unknown) => cause);
+    expect(failure).toBeInstanceOf(AnalysisError);
+    if (!(failure instanceof AnalysisError)) throw failure;
+    expect(failure._tag).toBe("ProviderAdapterError");
+    expect(failure.cause).toBe(physical);
+    expect(failure.secondaryFailures[0]?.cause).toBe(cancellation);
+    expect(run).toHaveBeenCalledOnce();
+    expect(await doctor.close()).toBeUndefined();
+  },
+);
+
+linuxIt(
+  "retains a failed completed inspection when the next engine path is cancelled",
+  async () => {
+    const { environment, host } = await fixture();
+    const controller = new AbortController();
+    const cancellation = { request: "cancel next engine admission" };
+    const physical = new OwnedCommandFailure(
+      "process",
+      "earlier Binwalk failure",
+      snapshot("partial binwalk version", 7, "binwalk diagnostic"),
+    );
+    const run = vi.fn<NonNullable<FirmwareDoctorHost["runCommand"]>>(
+      async (spawn, limits, options) => {
+        if (spawn.arguments.includes(environment.REA_BINWALK_COMMAND))
+          throw physical;
+        if (host.runCommand === undefined)
+          throw new Error("Expected recording host");
+        return host.runCommand(spawn, limits, options);
+      },
+    );
+    const select = commandPath.selectArtifactCommandPath;
+    const selection = vi
+      .spyOn(commandPath, "selectArtifactCommandPath")
+      .mockImplementation((path, signal) => {
+        if (path === environment.REA_UNBLOB_COMMAND)
+          controller.abort(cancellation);
+        return select(path, signal);
+      });
+    const doctor = new FirmwareDoctor(
+      environment,
+      "linux",
+      { ...host, runCommand: run },
+      controller.signal,
+    );
+    try {
+      const failure: unknown = await doctor
+        .inspect()
+        .catch((cause: unknown) => cause);
+      expect(failure).toBeInstanceOf(AnalysisError);
+      if (!(failure instanceof AnalysisError)) throw failure;
+      expect(failure._tag).toBe("ProviderAdapterError");
+      expect(failure.cause).toBe(physical);
+      expect(failure.secondaryFailures[0]?.cause).toBe(cancellation);
+      expect(projectAnalysisError(failure)).toMatchObject({
+        code: "execution_failure",
+        details: {
+          captured_output: {
+            stdout: "partial binwalk version",
+            stderr: "binwalk diagnostic",
+          },
+          diagnostics: {
+            firmware_inspections: [
+              {
+                id: "binwalk",
+                available: false,
+                checks: expect.arrayContaining([
+                  expect.objectContaining({
+                    name: "version",
+                    ok: false,
+                    detail: expect.stringContaining("earlier Binwalk failure"),
+                  }),
+                ]),
+              },
+            ],
+            firmware_inspection_count: { completed: 1, total: 2 },
+          },
+        },
+      });
+      expect(run).toHaveBeenCalledTimes(2);
+    } finally {
+      selection.mockRestore();
+      await doctor.close();
+    }
+  },
+);
+
+linuxIt(
+  "preserves both probe failures when cancellation follows the second failure",
+  async () => {
+    const { environment, host } = await fixture();
+    const controller = new AbortController();
+    const cancellation = {
+      request: "cancel during second failed probe cleanup",
+    };
+    const first = new OwnedCommandFailure(
+      "process",
+      "first Binwalk failure",
+      snapshot("binwalk output", 7, "binwalk failure detail"),
+    );
+    const second = new OwnedCommandFailure(
+      "output-limit",
+      "second Unblob output overflow",
+      {
+        ...snapshot("unblob output", 8, "unblob failure detail"),
+        diagnosticTruncated: true,
+      },
+      null,
+      { cancellation: { reason: cancellation } },
+    );
+    const run = vi.fn<NonNullable<FirmwareDoctorHost["runCommand"]>>(
+      async (spawn, limits, options) => {
+        if (spawn.arguments.includes(environment.REA_BINWALK_COMMAND))
+          throw first;
+        if (spawn.arguments.includes(environment.REA_UNBLOB_COMMAND)) {
+          controller.abort(cancellation);
+          throw second;
+        }
+        if (host.runCommand === undefined)
+          throw new Error("Expected recording host");
+        return host.runCommand(spawn, limits, options);
+      },
+    );
+    const doctor = new FirmwareDoctor(
+      environment,
+      "linux",
+      { ...host, runCommand: run },
+      controller.signal,
+    );
+    const failure: unknown = await doctor
+      .inspect()
+      .catch((cause: unknown) => cause);
+    expect(failure).toBeInstanceOf(AnalysisError);
+    if (!(failure instanceof AnalysisError)) throw failure;
+    expect(failure._tag).toBe("ProviderAdapterError");
+    expect(failure.cause).toBe(first);
+    expect(
+      failure.secondaryFailures.find(
+        (error) => error._tag === "AnalysisResourceConstraintError",
+      )?.cause,
+    ).toBe(second);
+    expect(
+      failure.secondaryFailures.find(
+        (error) => error instanceof AnalysisCancelledError,
+      )?.cause,
+    ).toBe(cancellation);
+    expect(projectAnalysisError(failure)).toMatchObject({
+      code: "execution_failure",
+      details: {
+        captured_output: {
+          stdout: "binwalk output",
+          stderr: "binwalk failure detail",
+          exit_code: 7,
+        },
+        diagnostics: {
+          firmware_secondary_probe_failures: [
+            {
+              code: "resource_constraint",
+              details: {
+                captured_output: {
+                  stdout: "unblob output",
+                  stderr: "unblob failure detail",
+                  exit_code: 8,
+                  truncated: true,
+                },
+              },
+            },
+          ],
+        },
+      },
+    });
+    expect(run).toHaveBeenCalledTimes(3);
+    expect(await doctor.close()).toBeUndefined();
+  },
+);
+
+linuxIt.each([false, true])(
+  "preserves the owned-command failure through actual supervision cleanup (refused: %s)",
+  async (refused) => {
+    const { environment, host } = await fixture();
+    const controller = new AbortController();
+    const cancellation = { request: "cancel in owned cleanup" };
+    const processError = new Error("authored process collection failure");
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      exitCode: null as number | null,
+      signalCode: null,
+      kill: vi.fn(() => false),
+    });
+    let cleanupCalls = 0;
+    const cleanup = async () => {
+      cleanupCalls++;
+      controller.abort(cancellation);
+      return refused && cleanupCalls === 1
+        ? {
+            cleaned: false as const,
+            reason: "exact probe owner is still pending",
+          }
+        : { cleaned: true as const, signaled: false };
+    };
+    const run = vi.fn<NonNullable<FirmwareDoctorHost["runCommand"]>>(
+      (spawn, limits, options) =>
+        runOwnedCommand(spawn, limits, {
+          ...options,
+          launcher: async () => {
+            setImmediate(() => {
+              child.stdout.end("owned stdout");
+              child.stderr.end("owned stderr");
+              child.emit("error", processError);
+              child.exitCode = 7;
+              child.emit("exit", 7, null);
+              child.emit("close", 7, null);
+            });
+            return {
+              process: child,
+              ownership: {
+                runId: "firmware-doctor-finalization",
+                leaderPid: 41234,
+                processGroupId: 41234,
+              },
+              cleanup,
+            };
+          },
+        }),
+    );
+    const doctor = new FirmwareDoctor(
+      environment,
+      "linux",
+      { ...host, runCommand: run },
+      controller.signal,
+    );
+    try {
+      const failure: unknown = await doctor
+        .inspect()
+        .catch((cause: unknown) => cause);
+      expect(failure).toBeInstanceOf(AnalysisError);
+      if (!(failure instanceof AnalysisError)) throw failure;
+      expect(failure).toMatchObject({
+        _tag: "ProviderAdapterError",
+        cause: { reason: "process", processError },
+        capturedOutput: {
+          stdout: "owned stdout",
+          stderr: "owned stderr",
+          exit_code: 7,
+        },
+      });
+      expect(failure.secondaryFailures[0]?.cause).toBe(cancellation);
+      expect(doctor.hasPendingCleanup).toBe(refused);
+      expect(cleanupCalls).toBe(1);
+      expect(run).toHaveBeenCalledOnce();
+      expect(await doctor.close()).toBeUndefined();
+      expect(cleanupCalls).toBe(refused ? 2 : 1);
+      expect(doctor.hasPendingCleanup).toBe(false);
+      expect(failure._tag).toBe("ProviderAdapterError");
+      expect(failure.capturedOutput?.stderr).toBe("owned stderr");
+      expect(child.kill).not.toHaveBeenCalled();
+    } finally {
+      await doctor.close();
+      child.stdout.destroy();
+      child.stderr.destroy();
+    }
+  },
+);
+
+linuxIt(
+  "reports real process-table overflow as an unknown prerequisite without launching tools",
+  async () => {
+    const { environment, root } = await fixture();
+    const ps = join(root, "ps");
+    await writeFile(
+      ps,
+      `#!${process.execPath}\nprocess.stdout.write("é".repeat(65536));\n`,
+    );
+    await chmod(ps, 0o700);
+    const run = vi.fn<NonNullable<FirmwareDoctorHost["runCommand"]>>();
+    const doctor = new FirmwareDoctor({ ...environment, PATH: root }, "linux", {
+      runCommand: run,
+    });
+    const inspections = await doctor.inspect();
+    expect(inspections).toHaveLength(2);
+    for (const inspection of inspections) {
+      expect(inspection.available).toBe(false);
+      expect(inspection.checks).toContainEqual(
+        expect.objectContaining({
+          name: "ps",
+          ok: false,
+          classification: "unknown",
+          detail: expect.stringContaining("65536-byte"),
+          details: expect.objectContaining({
+            reason: "output_limit",
+            max_output_bytes_per_stream: 65536,
+          }),
+        }),
+      );
+      expect(inspection.checks.some(({ name }) => name === "version")).toBe(
+        false,
+      );
+    }
+    expect(run).not.toHaveBeenCalled();
+    expect(await doctor.close()).toBeUndefined();
+  },
+);
+
+linuxIt(
   "retains incomplete cleanup, blocks later launches and retries on close",
   async () => {
     const { environment, host } = await fixture();
@@ -485,10 +928,10 @@ const fixture = async (
           0,
         );
       expect(spawn.arguments.slice(0, 5)).toEqual([
-        "--as=1073741824",
-        "--fsize=0",
-        "--core=0",
-        "--cpu=5",
+        "--as=1073741824:1073741824",
+        "--fsize=0:0",
+        "--cpu=5:5",
+        "--core=0:0",
         "--",
       ]);
       if (spawn.arguments[5] === binwalk)
@@ -510,13 +953,21 @@ const fixture = async (
   };
 };
 
-const snapshot = (text: string, exitCode: number): ProviderProcessSnapshot => ({
+const snapshot = (
+  text: string,
+  exitCode: number,
+  stderr = "",
+): ProviderProcessSnapshot => ({
   stdout: {
     text,
     bytes: Buffer.byteLength(text),
     observedBytes: Buffer.byteLength(text),
   },
-  stderr: { text: "", bytes: 0, observedBytes: 0 },
+  stderr: {
+    text: stderr,
+    bytes: Buffer.byteLength(stderr),
+    observedBytes: Buffer.byteLength(stderr),
+  },
   exitCode,
   signal: null,
 });

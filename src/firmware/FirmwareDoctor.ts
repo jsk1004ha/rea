@@ -5,13 +5,27 @@ import type {
   DoctorProviderInspection,
 } from "../application/Doctor.js";
 import { err, ok, type Result } from "../domain/result.js";
-import { AnalysisCancelledError } from "../domain/analysisErrorCore.js";
+import { AnalysisError } from "../domain/analysisErrorBase.js";
+import {
+  AnalysisCancelledError,
+  AnalysisResourceConstraintError,
+  AnalysisTimeoutError,
+} from "../domain/analysisErrorCore.js";
+import { analysisErrorWithCancellation } from "../domain/analysisErrorCancellation.js";
+import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
+import { ProviderAdapterError } from "../domain/providerAdapterError.js";
+import { jsonValueSchema } from "../domain/jsonValue.js";
 import {
   runOwnedCommand,
   OwnedCommandFailure,
 } from "../process/OwnedCommand.js";
 import type { ProviderProcessSupervisor } from "../process/ProviderProcess.js";
-import { createSystemProcessOwnershipHost } from "../process/ProcessOwnershipObservation.js";
+import {
+  createSystemProcessOwnershipHost,
+  LinuxOwnedProcessPrerequisiteError,
+} from "../process/ProcessOwnershipObservation.js";
+import { artifactCommandOutput } from "../process/ArtifactAnalysisResources.js";
+import { prlimitArgumentVector } from "../process/LinuxResourceLimits.js";
 import {
   firmwareLimiterPath,
   inspectFirmwareExecutable,
@@ -37,6 +51,11 @@ interface ProbeOutput {
   readonly exitCode: number | null;
 }
 
+interface InspectionProgress {
+  primaryFailure?: AnalysisError;
+  readonly inspections: DoctorProviderInspection[];
+}
+
 /** Host process seams; production uses the shared owned-command supervisor. */
 export interface FirmwareDoctorHost {
   readonly prepareOwnership?: (
@@ -59,19 +78,44 @@ export class FirmwareDoctor {
 
   /** Inspect each optional tool independently and share host prerequisite probes. */
   async inspect(): Promise<readonly DoctorProviderInspection[]> {
+    const progress: InspectionProgress = { inspections: [] };
     try {
-      return await this.#inspectProviders();
+      return await this.#inspectProviders(progress);
     } catch (cause: unknown) {
-      if (
-        cause instanceof ArtifactReaderFailure &&
-        cause.reason === "cancelled"
-      )
-        throw new AnalysisCancelledError("doctor", { cause: cause.cause });
-      throw cause;
+      const failure =
+        cause instanceof ArtifactReaderFailure && cause.reason === "cancelled"
+          ? new AnalysisCancelledError("doctor", { cause: cause.cause })
+          : cause;
+      const retained =
+        failure instanceof AnalysisCancelledError
+          ? analysisErrorWithCancellation(progress.primaryFailure, failure)
+          : failure;
+      if (retained instanceof AnalysisError) {
+        const secondary = retained.secondaryFailures.filter(
+          (failure) => !(failure instanceof AnalysisCancelledError),
+        );
+        retained.retainDiagnostics({
+          firmware_inspections: jsonValueSchema.parse(progress.inspections),
+          firmware_inspection_count: {
+            completed: progress.inspections.length,
+            total: 2,
+          },
+          ...(secondary.length === 0
+            ? {}
+            : {
+                firmware_secondary_probe_failures: jsonValueSchema.parse(
+                  secondary.map(projectAnalysisError),
+                ),
+              }),
+        });
+      }
+      throw retained;
     }
   }
 
-  async #inspectProviders(): Promise<readonly DoctorProviderInspection[]> {
+  async #inspectProviders(
+    progress: InspectionProgress,
+  ): Promise<readonly DoctorProviderInspection[]> {
     this.#throwIfCancelled();
     const platform = diagnostic(
       "platform",
@@ -107,9 +151,11 @@ export class FirmwareDoctor {
           ),
         );
       } else if (ps.ok) {
-        const result = await this.#probe(path.value.invocationPath, [
-          "--version",
-        ]);
+        const result = await this.#probe(
+          path.value.invocationPath,
+          ["--version"],
+          progress,
+        );
         const valid =
           result.ok &&
           result.value.exitCode === 0 &&
@@ -138,10 +184,12 @@ export class FirmwareDoctor {
         );
       }
     }
-    const inspections: DoctorProviderInspection[] = [];
+    const { inspections } = progress;
     for (const engine of ["binwalk", "unblob"] as const) {
       this.#throwIfCancelled();
-      inspections.push(await this.#inspectEngine(engine, checks, limiter));
+      inspections.push(
+        await this.#inspectEngine(engine, checks, limiter, progress),
+      );
     }
     this.#throwIfCancelled();
     return inspections;
@@ -192,6 +240,23 @@ export class FirmwareDoctor {
       );
     } catch (cause: unknown) {
       this.#throwIfCancelled();
+      if (
+        cause instanceof LinuxOwnedProcessPrerequisiteError &&
+        cause.outputLimitBytes !== undefined
+      )
+        return {
+          ...diagnostic(
+            "ps",
+            false,
+            cause.reason,
+            "unknown",
+            "Process inspection exceeded its fixed output allowance; reduce the process-table output before retrying doctor. No firmware probe was launched.",
+          ),
+          details: {
+            reason: "output_limit",
+            max_output_bytes_per_stream: cause.outputLimitBytes,
+          },
+        };
       return diagnostic(
         "ps",
         false,
@@ -206,6 +271,7 @@ export class FirmwareDoctor {
     engine: FirmwareEngineName,
     prerequisites: readonly DoctorProviderCheck[],
     limiter: string | undefined,
+    progress: InspectionProgress,
   ): Promise<DoctorProviderInspection> {
     const variable = FIRMWARE_TOOL_REQUIREMENTS[engine].commandEnvironment;
     const configured = this.environment[variable] !== undefined;
@@ -232,6 +298,7 @@ export class FirmwareDoctor {
       const probe = await this.#probe(
         limiter,
         limitedArguments(command.value.invocationPath, ["--version"]),
+        progress,
       );
       if (!probe.ok || probe.value.exitCode !== 0) {
         checks.push(
@@ -271,6 +338,7 @@ export class FirmwareDoctor {
             await this.#inspectDependencies(
               limiter,
               command.value.invocationPath,
+              progress,
             ),
           );
       }
@@ -289,10 +357,12 @@ export class FirmwareDoctor {
   async #inspectDependencies(
     limiter: string,
     command: string,
+    progress: InspectionProgress,
   ): Promise<DoctorProviderCheck> {
     const result = await this.#probe(
       limiter,
       limitedArguments(command, ["--show-external-dependencies"]),
+      progress,
     );
     if (!result.ok)
       return diagnostic(
@@ -335,6 +405,7 @@ export class FirmwareDoctor {
   async #probe(
     command: string,
     arguments_: readonly string[],
+    progress: InspectionProgress,
   ): Promise<Result<ProbeOutput, string>> {
     // A failed cleanup blocks subsequent launches while keeping successful peer facts.
     if (this.#pendingCleanup.size > 0)
@@ -370,7 +441,24 @@ export class FirmwareDoctor {
         exitCode: result.exitCode ?? null,
       });
     } catch (cause: unknown) {
-      this.#throwIfCancelled();
+      const failure = probeFailure(cause);
+      if (failure instanceof AnalysisCancelledError) throw failure;
+      // Keep the first command failure through later admission/finalization
+      // cancellation, while ordinary failures still allow peer diagnostics.
+      if (progress.primaryFailure === undefined)
+        progress.primaryFailure = failure;
+      else if (progress.primaryFailure !== failure)
+        progress.primaryFailure.retainSecondaryFailure(failure);
+      if (
+        cause instanceof OwnedCommandFailure &&
+        cause.cancellation !== undefined
+      )
+        throw analysisErrorWithCancellation(
+          progress.primaryFailure,
+          new AnalysisCancelledError("doctor", {
+            cause: cause.cancellation.reason,
+          }),
+        );
       const output =
         cause instanceof OwnedCommandFailure ? cause.snapshot : null;
       return err(
@@ -399,17 +487,62 @@ const limitedArguments = (
   command: string,
   args: readonly string[],
 ): readonly string[] => [
-  `--as=${FIRMWARE_LIMITS.addressSpaceBytes}`,
-  "--fsize=0",
-  "--core=0",
-  "--cpu=5",
-  "--",
-  command,
+  ...prlimitArgumentVector(
+    {
+      address_space_bytes: FIRMWARE_LIMITS.addressSpaceBytes,
+      file_bytes: 0,
+      cpu_seconds: 5,
+    },
+    command,
+  ),
   ...args,
 ];
 
 const failureMessage = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
+
+/** Translate the command owner's recorded outcome before considering later cancellation. */
+const probeFailure = (cause: unknown): AnalysisError => {
+  if (cause instanceof AnalysisError) return cause;
+  const owned = cause instanceof OwnedCommandFailure ? cause : undefined;
+  const options = {
+    cause,
+    ...(owned?.snapshot == null
+      ? {}
+      : { capturedOutput: artifactCommandOutput(owned.snapshot) }),
+    diagnostics: {
+      firmware_probe: {
+        reason: owned?.reason ?? "process",
+        message: failureMessage(cause),
+      },
+    },
+  };
+  if (owned?.reason === "cancelled")
+    return new AnalysisCancelledError("doctor", {
+      ...options,
+      cause:
+        owned.cancellation === undefined ? cause : owned.cancellation.reason,
+    });
+  if (owned?.reason === "timeout")
+    return new AnalysisTimeoutError("doctor", PROBE_LIMITS.timeoutMs, options);
+  if (owned?.reason === "output-limit")
+    return new AnalysisResourceConstraintError(
+      "doctor",
+      "memory",
+      owned.message,
+      { diagnostic_bytes: PROBE_LIMITS.diagnosticBytes },
+      {
+        ...options,
+        retryable: false,
+        remediationAction:
+          "The firmware diagnostic output allowance is fixed at 65536 bytes. Reduce the tool's diagnostic output before retrying; changing its timeout does not raise this limit.",
+      },
+    );
+  return new ProviderAdapterError("firmware", "doctor", {
+    ...options,
+    userMessage: failureMessage(cause),
+  });
+};
 
 /** Parse only the upstream 26.6 dependency format; unfamiliar output remains unknown. */
 const parseDependencies = (

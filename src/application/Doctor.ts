@@ -737,6 +737,7 @@ export const systemDoctorHost = (
       : {
           providerInspections: async () => {
             const inspections: DoctorProviderInspection[] = [];
+            let completedGroups = 0;
             for (const inspect of providerInspectionGroups) {
               try {
                 // Finish each active group before admitting the next one, so
@@ -746,10 +747,21 @@ export const systemDoctorHost = (
                     inspect(resourceScope, inspectionSignal),
                   )),
                 );
+                completedGroups++;
               } catch (cause: unknown) {
-                if (cause instanceof ArtifactResourceRetryFailure)
-                  throw doctorResourceCleanupFailure(cause);
-                throw cause;
+                const failure =
+                  cause instanceof ArtifactResourceRetryFailure
+                    ? doctorResourceCleanupFailure(cause)
+                    : cause;
+                if (failure instanceof AnalysisError)
+                  failure.retainDiagnostics({
+                    provider_inspections: jsonValueSchema.parse(inspections),
+                    provider_inspection_groups: {
+                      completed: completedGroups,
+                      total: providerInspectionGroups.length,
+                    },
+                  });
+                throw failure;
               }
             }
             return inspections;
